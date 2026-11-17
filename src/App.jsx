@@ -2,7 +2,6 @@ import React, { useState, useCallback } from 'react';
 import Puzzles from './Puzzles.jsx';
 import Analysis from './Analysis.jsx';
 import Play from './Play.jsx';
-import { PUZZLES } from './puzzles.js';
 import { LEVELS, ORDER } from './chessUtils.js';
 
 const PRACTICE_KEY = 'cl_practice';
@@ -14,18 +13,15 @@ const TABS =[['play', '♟ Play Bots'], ['puzzles', '🧩 Puzzles'], ['analyze',
 
 export default function App() {
   const [tab, setTab] = useState('play');
-  const [puzzles, setPuzzles] = useState(() => [...PUZZLES, ...loadPractice()]);
+  const [practice, setPractice] = useState(loadPractice);
+  const savePractice = next => { try { localStorage.setItem(PRACTICE_KEY, JSON.stringify(next.slice(-150))); } catch {} return next; };
   const [incoming, setIncoming] = useState(null);
   const [toast, setToast] = useState(null);
 
   const addPractice = useCallback(list => {
     if (!list.length) return;
-    setPuzzles(ps => {
-      const next = [...ps, ...list.filter(n => !ps.some(p => p.fen === n.fen))];
-      try { localStorage.setItem(PRACTICE_KEY, JSON.stringify(next.slice(PUZZLES.length).slice(-100))); } catch {}
-      return next;
-    });
-    setToast(`${list.length} practice puzzle${list.length > 1 ? 's' : ''} added`);
+    setPractice(ps => savePractice([...ps, ...list.filter(n => !ps.some(p => p.fen === n.fen))]));
+    setToast(`${list.length} mistake${list.length > 1 ? 's' : ''} added to My Mistakes`);
     setTimeout(() => setToast(null), 2800);
   }, []);
 
@@ -45,7 +41,9 @@ export default function App() {
         <div style={{ display: tab === 'play' ? 'contents' : 'none' }}>
           <Play onAnalyze={g => { setIncoming({ ...g, at: Date.now() }); setTab('analyze'); }} />
         </div>
-        {tab === 'puzzles' && <Puzzles puzzles={puzzles} />}
+        {tab === 'puzzles' && <Puzzles practice={practice}
+          onPracticeSolved={fen => setPractice(ps => savePractice(ps.map(p => p.fen === fen ? { ...p, fixed: true } : p)))}
+          onPracticeRemove={fen => setPractice(ps => savePractice(ps.filter(p => p.fen !== fen)))} />}
         <div style={{ display: tab === 'analyze' ? 'contents' : 'none' }}>
           <Analysis incoming={incoming} onPractice={addPractice} />
         </div>

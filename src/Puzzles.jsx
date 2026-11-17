@@ -2,10 +2,31 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Chess } from 'chess.js';
 import Board from './Board.jsx';
 import { trackPieces, tryMove, uci } from './chessUtils.js';
+import { PUZZLES } from './puzzles.js';
 
 const ls = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
-export default function Puzzles({ puzzles }) {
+export default function PuzzlesPage({ practice, onPracticeSolved, onPracticeRemove }) {
+  const [mode, setMode] = useState('puzzles');
+  const open = practice.filter(p => !p.fixed).length;
+  return (
+    <div className="pz-page">
+      <div className="subtabs">
+        <button className={mode === 'puzzles' ? 'on' : ''} onClick={() => setMode('puzzles')}>🧩 Puzzles <span className="count">{PUZZLES.length}</span></button>
+        <button className={mode === 'mistakes' ? 'on' : ''} onClick={() => setMode('mistakes')}>🎯 My Mistakes <span className="count hot">{open}</span></button>
+      </div>
+      {mode === 'puzzles'
+        ? <Trainer key="pz" mode="puzzles" puzzles={PUZZLES} />
+        : practice.length
+          ? <Trainer key="mk" mode="mistakes" puzzles={practice} onSolved={onPracticeSolved} onRemove={onPracticeRemove} />
+          : <div className="empty fade-in"><div className="empty-icon">🎯</div><h2>No mistakes yet</h2>
+              <p className="muted">Play a bot or paste a game in Analyze. Every mistake and blunder you make shows up here as a puzzle, so you can practice finding the better move.</p></div>}
+    </div>
+  );
+}
+
+function Trainer({ puzzles, mode, onSolved, onRemove }) {
+  const mine = mode === 'mistakes';
   const [idx, setIdx] = useState(0);
   const [nonce, setNonce] = useState(0);
   const [moves, setMoves] = useState([]);
@@ -31,7 +52,7 @@ export default function Puzzles({ puzzles }) {
     timers.current.forEach(clearTimeout); timers.current = [];
     setMoves([]); setStep(0); setFailed(false); setDone(false); setBusy(false); setBadge(null); setHint(null);
     setFb({ kind: 'info', text: `${new Chess(P.fen).turn() === 'w' ? 'White' : 'Black'} to move. Find the best move.` });
-  }, [idx, P, nonce]);
+  }, [idx, P.fen, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveScore = (s, r) => { setSolved(s); setRating(r); ls.set('cl_solved', s); ls.set('cl_rating', r); };
 
@@ -46,13 +67,14 @@ export default function Puzzles({ puzzles }) {
       setBadge({ sq: m.to, cls: 'mistake', key: Date.now() }); setBusy(true);
       setFb({ kind: 'bad', text: '✗ Not the move. Try again.' });
       setShake(true); later(() => setShake(false), 450);
-      if (!failed) { setFailed(true); saveScore(solved, Math.max(100, rating - 12)); }
+      if (!failed) { setFailed(true); if (!mine) saveScore(solved, Math.max(100, rating - 12)); }
       later(() => { setMoves(moves); setBadge(null); setBusy(false); }, 900);
       return;
     }
     setBadge({ sq: m.to, cls: isLast ? 'brilliant' : 'great', key: Date.now() });
     if (isLast) {
       setDone(true);
+      if (mine) { setFb({ kind: 'good', text: '✓ Fixed! You found the better move this time.' }); onSolved?.(P.fen); return; }
       setFb({ kind: 'good', text: failed ? '✓ Solved (with a retry).' : '✓ Solved! +15 rating' });
       if (!failed) saveScore(solved + 1, rating + 15);
       return;
@@ -81,7 +103,8 @@ export default function Puzzles({ puzzles }) {
       <aside className="side">
         <div className="side-head">
           <span className="pill">Puzzle {idx % puzzles.length + 1}/{puzzles.length}</span>
-          {P.r ? <span className="pill dim">rated {P.r}</span> : <span className="pill accent">from your game</span>}
+          {mine ? <span className="pill accent">from your game</span> : <span className="pill dim">rated {P.r}</span>}
+          {mine && P.fixed && <span className="pill good">✓ fixed</span>}
         </div>
         <h2>{P.t}</h2>
         <p className="muted">{P.d}</p>
@@ -92,11 +115,20 @@ export default function Puzzles({ puzzles }) {
           <button className="btn sec" onClick={() => setNonce(n => n + 1)}>↺ Retry</button>
           <button className="btn" onClick={() => setIdx((idx + 1) % puzzles.length)}>Next →</button>
         </div>
-        <div className="stats">
+        {mine ? <>
+          <div className="stats">
+            <div><span className="big">{puzzles.filter(p => p.fixed).length}</span><span className="muted">fixed</span></div>
+            <div><span className="big">{puzzles.filter(p => !p.fixed).length}</span><span className="muted">to practice</span></div>
+          </div>
+          <div className="row">
+            <button className="btn sec" onClick={() => { onRemove?.(P.fen); setIdx(i => Math.max(0, i - 1)); }}>🗑 Remove this one</button>
+            <button className="btn sec" onClick={() => { const i = puzzles.findIndex((p, k) => !p.fixed && k !== idx % puzzles.length); if (i >= 0) setIdx(i); }}>Next unfixed →</button>
+          </div>
+          <p className="muted small">These come from your own games. Your puzzle rating isn't affected here.</p>
+        </> : <div className="stats">
           <div><span className="big">{solved}</span><span className="muted">solved</span></div>
           <div><span className="big">{rating}</span><span className="muted">puzzle rating</span></div>
-        </div>
-        <p className="muted small">Mistakes and blunders from games you analyse are added here as practice puzzles.</p>
+        </div>}
       </aside>
     </div>
   );
